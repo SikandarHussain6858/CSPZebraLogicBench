@@ -1,3 +1,3 @@
 # AI Connect 2025
 
-CSP CHallenge for Logic Puzzle Solving
+CSP Challenge for Logic Puzzle Solving
