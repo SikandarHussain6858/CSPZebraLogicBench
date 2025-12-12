@@ -54,8 +54,10 @@ def parquet_to_csv(parquet_path, csv_path):
     if 'puzzle' in df.columns:
         df = df.drop(columns=['puzzle'])
 
-    # Reorder columns: solution at the end
-    cols = [c for c in df.columns if c != 'solution']
+    # Reorder columns: move constraints 2nd to last, solution last
+    cols = [c for c in df.columns if c not in ['constraints', 'solution']]
+    if 'constraints' in df.columns:
+        cols.append('constraints')
     if 'solution' in df.columns:
         cols.append('solution')
     df = df[cols]
