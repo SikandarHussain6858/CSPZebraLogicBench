@@ -1,5 +1,6 @@
 import pandas as pd
 
+
 def clean_feature(cell):
     if pd.isna(cell):
         return cell
@@ -12,6 +13,7 @@ def clean_feature(cell):
         return cell_str
     last_word = words[-1]
     return last_word + cell_str[colon_index:]
+
 
 def parquet_to_csv(parquet_path, csv_path):
     df = pd.read_parquet(parquet_path)
@@ -30,7 +32,8 @@ def parquet_to_csv(parquet_path, csv_path):
     # Clean puzzle into features + constraints
     if 'puzzle' in df.columns:
         # Keep everything after first dash including dash
-        df['puzzle'] = df['puzzle'].astype(str).str.replace(r'^[^-]*', '', regex=True)
+        df['puzzle'] = df['puzzle'].astype(
+            str).str.replace(r'^[^-]*', '', regex=True)
         puzzle_clean = df['puzzle'].str.lstrip('-')
 
         # Extract constraints (after final #)
@@ -43,7 +46,8 @@ def parquet_to_csv(parquet_path, csv_path):
         # Limit to max 6 features
         max_features = 6
         for i in range(max_features):
-            df[f'feature_{i+1}'] = feature_parts.apply(lambda x: x[i] if i < len(x) else None)
+            df[f'feature_{i+1}'] = feature_parts.apply(
+                lambda x: x[i] if i < len(x) else None)
 
         # Clean feature_* columns
         feature_cols = [f'feature_{i+1}' for i in range(max_features)]
@@ -64,6 +68,7 @@ def parquet_to_csv(parquet_path, csv_path):
 
     # Write CSV
     df.to_csv(csv_path, index=False)
+
 
 if __name__ == "__main__":
     parquet_file = "test-00000-of-00001.parquet"
