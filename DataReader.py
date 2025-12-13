@@ -8,7 +8,8 @@ def _parse_features(puzzle: str) -> dict:
                       if line.strip().startswith('- ')]
 
     return {
-        item.split(":")[0].split(" ")[-1]: item.split(":")[1].strip().replace("`", "").split(", ")
+        item.split(":")[0].split(
+            " ")[-1]: item.split(":")[1].strip().replace("`", "").split(", ")
         for item in dirty_features
     }
 
@@ -27,21 +28,20 @@ def parquet_to_csv(parquet_path: str, csv_path: str) -> None:
 
     # Extract the number of houses from the 'size' column (split on '*')
     # and parse features and constraints from 'puzzle' column
+    # and add solution
     output = pd.DataFrame({
         'houses': df['size'].astype(str).str.split('*').str[0].astype(int),
         'features': df['puzzle'].apply(_parse_features),
         'constraints': df['puzzle'].apply(_parse_constraints),
+        'solution': df['solution']
     }, index=df.index)
-
-    # Add solution column else set it to None
-    output['solution'] = df['solution'] if 'solution' in df.columns else None
 
     # Write CSV
     output.to_csv(csv_path, index=True, index_label='id')
 
 
 if __name__ == "__main__":
-    parquet_file = "test-00000-of-00001.parquet"
+    parquet_file = "Gridmode-00000-of-00001.parquet"
     csv_file = "output.csv"
 
     parquet_to_csv(parquet_file, csv_file)
