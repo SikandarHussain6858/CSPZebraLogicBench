@@ -2,15 +2,15 @@ import pandas as pd
 import re
 
 
-def _parse_features(puzzle: str) -> list[dict]:
+def _parse_features(puzzle: str) -> dict:
     """Extract features from puzzle text."""
     dirty_features = [line for line in puzzle.split('\n')
                       if line.strip().startswith('- ')]
 
-    return [{
-        "key": item.split(":")[0].split(" ")[-1],
-        "values": item.split(":")[1].strip().replace("`", "").split(", ")
-    } for item in dirty_features]
+    return {
+        item.split(":")[0].split(" ")[-1]: item.split(":")[1].strip().replace("`", "").split(", ")
+        for item in dirty_features
+    }
 
 
 def _parse_constraints(puzzle: str) -> list[str]:
@@ -21,7 +21,7 @@ def _parse_constraints(puzzle: str) -> list[str]:
     return [item.split(". ")[-1].strip() for item in dirty_constraints]
 
 
-def parquet_to_csv(parquet_path, csv_path):
+def parquet_to_csv(parquet_path: str, csv_path: str) -> None:
     df = pd.read_parquet(parquet_path)
     df.set_index('id', inplace=True)
 
