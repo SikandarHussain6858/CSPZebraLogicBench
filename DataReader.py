@@ -1,73 +1,43 @@
 import pandas as pd
+import re
 
 
-def clean_feature(cell):
-    if pd.isna(cell):
-        return cell
-    cell_str = str(cell)
-    colon_index = cell_str.find(':')
-    if colon_index == -1:
-        return cell_str  # no colon, return as-is
-    words = cell_str[:colon_index].split()
-    if not words:
-        return cell_str
-    last_word = words[-1]
-    return last_word + cell_str[colon_index:]
+def _parse_features(puzzle: str) -> list[dict]:
+    """Extract features from puzzle text."""
+    dirty_features = [line for line in puzzle.split('\n')
+                      if line.strip().startswith('- ')]
+
+    return [{
+        "key": item.split(":")[0].split(" ")[-1],
+        "values": item.split(":")[1].strip().replace("`", "").split(", ")
+    } for item in dirty_features]
+
+
+def _parse_constraints(puzzle: str) -> list[str]:
+    """Extract constraints from puzzle text."""
+    dirty_constraints = [line for line in puzzle.split('\n')
+                         if re.match(r'^\d+\.\s', line.strip())]
+
+    return [item.split(". ")[-1].strip() for item in dirty_constraints]
 
 
 def parquet_to_csv(parquet_path, csv_path):
     df = pd.read_parquet(parquet_path)
+    df.set_index('id', inplace=True)
 
-    # Drop 'created_at' column
-    if 'created_at' in df.columns:
-        df = df.drop(columns=['created_at'])
+    # Extract the number of houses from the 'size' column (split on '*')
+    # and parse features and constraints from 'puzzle' column
+    output = pd.DataFrame({
+        'houses': df['size'].astype(str).str.split('*').str[0].astype(int),
+        'features': df['puzzle'].apply(_parse_features),
+        'constraints': df['puzzle'].apply(_parse_constraints),
+    }, index=df.index)
 
-    # Parse size "3*10" → houses/features
-    if 'size' in df.columns:
-        size_split = df['size'].astype(str).str.split('*', expand=True)
-        df['houses'] = size_split[0].astype(int)
-        df['features'] = size_split[1].astype(int)
-        df = df.drop(columns=['size'])
-
-    # Clean puzzle into features + constraints
-    if 'puzzle' in df.columns:
-        # Keep everything after first dash including dash
-        df['puzzle'] = df['puzzle'].astype(
-            str).str.replace(r'^[^-]*', '', regex=True)
-        puzzle_clean = df['puzzle'].str.lstrip('-')
-
-        # Extract constraints (after final #)
-        df['constraints'] = puzzle_clean.str.split('#').str[-1]
-
-        # Everything before # are features
-        before_constraints = puzzle_clean.str.split('#').str[0]
-        feature_parts = before_constraints.str.split('-')
-
-        # Limit to max 6 features
-        max_features = 6
-        for i in range(max_features):
-            df[f'feature_{i+1}'] = feature_parts.apply(
-                lambda x: x[i] if i < len(x) else None)
-
-        # Clean feature_* columns
-        feature_cols = [f'feature_{i+1}' for i in range(max_features)]
-        for col in feature_cols:
-            df[col] = df[col].apply(clean_feature)
-
-    # Drop the original puzzle column
-    if 'puzzle' in df.columns:
-        df = df.drop(columns=['puzzle'])
-
-    # Reorder columns: move constraints 2nd to last, solution last
-    cols = [c for c in df.columns if c not in ['constraints', 'solution']]
-    if 'constraints' in df.columns:
-        cols.append('constraints')
-    if 'solution' in df.columns:
-        cols.append('solution')
-    df = df[cols]
+    # Add solution column else set it to None
+    output['solution'] = df['solution'] if 'solution' in df.columns else None
 
     # Write CSV
-    df.to_csv(csv_path, index=False)
+    output.to_csv(csv_path, index=True, index_label='id')
 
 
 if __name__ == "__main__":
