@@ -149,31 +149,33 @@ def _synchronize_equal_values(constraint: Constraint, left_feature: str, right_f
         left_vals = house.get_feature_values(left_feature)
         right_vals = house.get_feature_values(right_feature)
 
-        # If left value in house, right value must be too
-        if constraint.left in left_vals and len(right_vals) > 1:
-            try:
-                house.remove_remaining_feature_values(
-                    right_feature, constraint.right)
-                for other_house in houses:
-                    if other_house != house:
-                        other_house.remove_feature(
-                            right_feature, constraint.right)
-                changes_made = True
-            except ValueError:
-                pass
+        # If left value is UNIQUELY assigned to this house, right value must be too
+        if len(left_vals) == 1 and constraint.left == left_vals[0] and constraint.right in right_vals:
+            if len(right_vals) > 1:
+                try:
+                    house.remove_remaining_feature_values(
+                        right_feature, constraint.right)
+                    for other_house in houses:
+                        if other_house != house:
+                            other_house.remove_feature(
+                                right_feature, constraint.right)
+                    changes_made = True
+                except ValueError:
+                    pass
 
-        # If right value in house, left value must be too
-        if constraint.right in right_vals and len(left_vals) > 1:
-            try:
-                house.remove_remaining_feature_values(
-                    left_feature, constraint.left)
-                for other_house in houses:
-                    if other_house != house:
-                        other_house.remove_feature(
-                            left_feature, constraint.left)
-                changes_made = True
-            except ValueError:
-                pass
+        # If right value is UNIQUELY assigned to this house, left value must be too
+        if len(right_vals) == 1 and constraint.right == right_vals[0] and constraint.left in left_vals:
+            if len(left_vals) > 1:
+                try:
+                    house.remove_remaining_feature_values(
+                        left_feature, constraint.left)
+                    for other_house in houses:
+                        if other_house != house:
+                            other_house.remove_feature(
+                                left_feature, constraint.left)
+                    changes_made = True
+                except ValueError:
+                    pass
 
     return changes_made
 
@@ -558,6 +560,17 @@ def solve_puzzle(features: dict, constraints: list[str], house_count: int) -> li
         if puzzle_unsolvable:
             break
 
+        for constraint in parsed_constraints:
+            try:
+                if _apply_directional_constraint(constraint, features, houses):
+                    changes_made = True
+            except ValueError:
+                puzzle_unsolvable = True
+                break
+
+        if puzzle_unsolvable:
+            break
+
         if not changes_made:
             break
 
@@ -769,6 +782,124 @@ def _apply_positional_equal_constraint(constraint: Constraint, features: dict, h
                 except ValueError:
                     pass
 
+    return changes_made
+
+
+def _apply_directional_constraint(constraint: Constraint, features: dict, houses: list[House]) -> bool:
+    """Apply directional constraints (LEFT_OF, RIGHT_OF, DIRECTLY_LEFT_OF, etc.) during propagation."""
+    if constraint.operator not in (Operation.LEFT_OF, Operation.RIGHT_OF, 
+                                   Operation.DIRECTLY_LEFT_OF, Operation.DIRECTLY_RIGHT_OF,
+                                   Operation.NEXT_TO):
+        return False
+    
+    # Find features for left and right values
+    try:
+        left_feature = _find_feature(constraint.left, features)
+        right_feature = _find_feature(constraint.right, features)
+    except ValueError:
+        return False
+    
+    changes_made = False
+    house_count = len(houses)
+    
+    # For each house, check if the constraint can be satisfied
+    # If a value is in a position where the constraint cannot be satisfied, remove it
+    for house in houses:
+        left_vals = house.get_feature_values(left_feature)
+        right_vals = house.get_feature_values(right_feature)
+        
+        # Check if left value can be in this house
+        if constraint.left in left_vals:
+            can_satisfy = False
+            
+            if constraint.operator == Operation.DIRECTLY_LEFT_OF:
+                # Left must be directly before right, so right must be able to be in house.number + 1
+                if house.number < house_count:
+                    next_house = houses[house.number]  # 0-indexed, so house.number is next
+                    if constraint.right in next_house.get_feature_values(right_feature):
+                        can_satisfy = True
+            elif constraint.operator == Operation.DIRECTLY_RIGHT_OF:
+                # Left must be directly after right, so right must be able to be in house.number - 1
+                if house.number > 1:
+                    prev_house = houses[house.number - 2]  # 0-indexed
+                    if constraint.right in prev_house.get_feature_values(right_feature):
+                        can_satisfy = True
+            elif constraint.operator == Operation.LEFT_OF:
+                # Left must be before right, so right must be able to be in any house after this
+                for h in range(house.number, house_count):
+                    if constraint.right in houses[h].get_feature_values(right_feature):
+                        can_satisfy = True
+                        break
+            elif constraint.operator == Operation.RIGHT_OF:
+                # Left must be after right, so right must be able to be in any house before this
+                for h in range(0, house.number - 1):
+                    if constraint.right in houses[h].get_feature_values(right_feature):
+                        can_satisfy = True
+                        break
+            elif constraint.operator == Operation.NEXT_TO:
+                # Left must be next to right (either side)
+                if house.number > 1:
+                    prev_house = houses[house.number - 2]
+                    if constraint.right in prev_house.get_feature_values(right_feature):
+                        can_satisfy = True
+                if house.number < house_count:
+                    next_house = houses[house.number]
+                    if constraint.right in next_house.get_feature_values(right_feature):
+                        can_satisfy = True
+            
+            if not can_satisfy:
+                try:
+                    house.remove_feature(left_feature, constraint.left)
+                    changes_made = True
+                except ValueError:
+                    pass
+        
+        # Check if right value can be in this house
+        if constraint.right in right_vals:
+            can_satisfy = False
+            
+            if constraint.operator == Operation.DIRECTLY_LEFT_OF:
+                # Right must be directly after left, so left must be able to be in house.number - 1
+                if house.number > 1:
+                    prev_house = houses[house.number - 2]
+                    if constraint.left in prev_house.get_feature_values(left_feature):
+                        can_satisfy = True
+            elif constraint.operator == Operation.DIRECTLY_RIGHT_OF:
+                # Right must be directly before left, so left must be able to be in house.number + 1
+                if house.number < house_count:
+                    next_house = houses[house.number]
+                    if constraint.left in next_house.get_feature_values(left_feature):
+                        can_satisfy = True
+            elif constraint.operator == Operation.LEFT_OF:
+                # Right must be after left, so left must be able to be in any house before this
+                for h in range(0, house.number - 1):
+                    if constraint.left in houses[h].get_feature_values(left_feature):
+                        can_satisfy = True
+                        break
+            elif constraint.operator == Operation.RIGHT_OF:
+                # Right must be before left, so left must be able to be in any house after this
+                for h in range(house.number, house_count):
+                    if constraint.left in houses[h].get_feature_values(left_feature):
+                        can_satisfy = True
+                        break
+            elif constraint.operator == Operation.NEXT_TO:
+                # Right must be next to left (either side)
+                if house.number > 1:
+                    prev_house = houses[house.number - 2]
+                    if constraint.left in prev_house.get_feature_values(left_feature):
+                        can_satisfy = True
+                if house.number < house_count:
+                    next_house = houses[house.number]
+                    if constraint.left in next_house.get_feature_values(left_feature):
+                        can_satisfy = True
+            
+            if not can_satisfy:
+                try:
+                    house.remove_feature(right_feature, constraint.right)
+                    changes_made = True
+                except ValueError:
+                    pass
+    
     return changes_made
 
 
