@@ -121,6 +121,37 @@ def _enforce_unique_assignment(features: dict, houses: list[House]) -> bool | No
     return changes_made
 
 
+def _apply_naked_pairs(features: dict, houses: list[House]) -> bool:
+    """Find and eliminate naked pairs/triples to reduce domains."""
+    changes_made = False
+    
+    for feature in features:
+        # Look for houses with same small domain sizes
+        domain_map = {}
+        for house in houses:
+            vals = tuple(sorted(house.get_feature_values(feature)))
+            if 2 <= len(vals) <= 3:  # Only consider pairs and triples
+                if vals not in domain_map:
+                    domain_map[vals] = []
+                domain_map[vals].append(house)
+        
+        # If N houses have the same N values, remove these values from other houses
+        for vals, houses_with_vals in domain_map.items():
+            if len(vals) == len(houses_with_vals):
+                # This is a naked pair/triple
+                for house in houses:
+                    if house not in houses_with_vals:
+                        for val in vals:
+                            if val in house.get_feature_values(feature):
+                                try:
+                                    house.remove_feature(feature, val)
+                                    changes_made = True
+                                except ValueError:
+                                    pass
+    
+    return changes_made
+
+
 def _propagate_constraints(features: dict, houses: list[House]):
     """Apply constraint propagation to narrow domains."""
     # Enforce alldiff constraint
@@ -136,8 +167,11 @@ def _propagate_constraints(features: dict, houses: list[House]):
         return None
 
     changes_from_unique = result
+    
+    # Apply naked pairs/triples elimination
+    changes_from_naked = _apply_naked_pairs(features, houses)
 
-    return changes_from_alldiff or changes_from_unique
+    return changes_from_alldiff or changes_from_unique or changes_from_naked
 
 
 def _synchronize_equal_values(constraint: Constraint, left_feature: str, right_feature: str,
@@ -527,7 +561,7 @@ def solve_puzzle(features: dict, constraints: list[str], house_count: int) -> li
         except Exception:
             continue
 
-    max_iterations = 100
+    max_iterations = 200
     iteration = 0
     puzzle_unsolvable = False
 
