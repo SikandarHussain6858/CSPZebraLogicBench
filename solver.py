@@ -1084,6 +1084,9 @@ def _find_keyword_in_constraint(constraint: list[str], features: dict) -> Tuple[
     for values in features.values():
         all_feature_values.extend(values)
     
+    # Sort by length (longest first) to prefer longer matches and avoid substring issues
+    sorted_values = sorted(all_feature_values, key=len, reverse=True)
+    
     # Extract all possible values from all parts
     all_values = []
     for part in constraint:
@@ -1091,11 +1094,39 @@ def _find_keyword_in_constraint(constraint: list[str], features: dict) -> Tuple[
         part_normalized = part.lower().replace('-', ' ')
         
         # Try to find ALL values in this part, not just one
-        for value in sorted(all_feature_values, key=len, reverse=True):
+        # Use a set to track which positions have been matched to avoid overlaps
+        matched_positions = set()
+        
+        for value in sorted_values:
             value_normalized = value.lower().replace('-', ' ')
-            if value_normalized in part_normalized and value not in all_values:
-                all_values.append(value)
-                # Don't break - continue looking for other values in this part
+            if value not in all_values:
+                # Find all occurrences of this value in the part
+                start_pos = 0
+                while True:
+                    pos = part_normalized.find(value_normalized, start_pos)
+                    if pos == -1:
+                        break
+                    
+                    # Check if this position range overlaps with already matched text
+                    end_pos = pos + len(value_normalized)
+                    overlap = False
+                    for matched_start, matched_end in matched_positions:
+                        if not (end_pos <= matched_start or pos >= matched_end):
+                            overlap = True
+                            break
+                    
+                    if not overlap:
+                        # Check word boundaries to avoid substring matches
+                        # e.g., "short" shouldn't match inside "very short"
+                        before_ok = (pos == 0 or not part_normalized[pos-1].isalnum())
+                        after_ok = (end_pos >= len(part_normalized) or not part_normalized[end_pos].isalnum())
+                        
+                        if before_ok and after_ok:
+                            all_values.append(value)
+                            matched_positions.add((pos, end_pos))
+                            break
+                    
+                    start_pos = pos + 1
 
     if len(all_values) < 2:
         raise ValueError(f"Could not extract two values from: {constraint}")
