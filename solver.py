@@ -262,12 +262,24 @@ def _check_constraint(constraint: Constraint, left_val: str, right_val: str, lef
     return True
 
 
-def _backtrack_solve(domains: dict, features: dict, constraints_parsed: list, house_count: int, depth: int = 0) -> dict:
-    """Search for complete assignment using backtracking with MRV heuristic."""
+def _backtrack_solve(domains: dict, features: dict, constraints_parsed: list, house_count: int, depth: int = 0, constraint_cache: dict = None) -> dict:
+    """Search for complete assignment using backtracking with MRV heuristic and optimizations."""
     # Limit recursion depth to prevent infinite loops
-    # For large problems, backtracking needs more depth to explore
-    if depth > 1000:
+    # Increased limit for complex puzzles
+    if depth > 2000:
         return {}
+    
+    # Initialize constraint cache on first call
+    if constraint_cache is None:
+        constraint_cache = {}
+        # Pre-compute feature lookups for constraints to avoid repeated searches
+        for constraint in constraints_parsed:
+            try:
+                left_feature = _find_feature(constraint.left, features)
+                right_feature = _find_feature(constraint.right, features)
+                constraint_cache[id(constraint)] = (left_feature, right_feature)
+            except ValueError:
+                constraint_cache[id(constraint)] = (None, None)
 
     # Ensure all domains are initialized
     for h_num in range(1, house_count + 1):
@@ -374,55 +386,59 @@ def _backtrack_solve(domains: dict, features: dict, constraints_parsed: list, ho
 
     # Try each value in domain
     for value in domains[h_num][feature]:
-        # Quick early pruning: check if this value violates any constraint
+        # Quick early pruning: check if this value violates any constraint using cache
         can_assign = True
 
         # Check EQUAL constraints - if this value is part of an EQUAL constraint,
         # check if its partner can exist
         for constraint in constraints_parsed:
             if constraint.operator == Operation.EQUAL:
-                try:
-                    left_feature = _find_feature(constraint.left, features)
-                    right_feature = _find_feature(constraint.right, features)
+                # Use cached feature lookups
+                left_feature, right_feature = constraint_cache.get(id(constraint), (None, None))
+                if left_feature is None or right_feature is None:
+                    continue
 
-                    # If we're assigning the left value, check if right is possible in this house
-                    if left_feature == feature and constraint.left == value:
-                        if constraint.right not in domains[h_num].get(right_feature, []):
-                            can_assign = False
-                            break
+                # If we're assigning the left value, check if right is possible in this house
+                if left_feature == feature and constraint.left == value:
+                    if constraint.right not in domains[h_num].get(right_feature, []):
+                        can_assign = False
+                        break
 
-                    # If we're assigning the right value, check if left is possible in this house
-                    if right_feature == feature and constraint.right == value:
-                        if constraint.left not in domains[h_num].get(left_feature, []):
-                            can_assign = False
-                            break
-                except ValueError:
-                    pass
+                # If we're assigning the right value, check if left is possible in this house
+                if right_feature == feature and constraint.right == value:
+                    if constraint.left not in domains[h_num].get(left_feature, []):
+                        can_assign = False
+                        break
 
         if not can_assign:
             continue
-        # Save old domains
+        # Save old domains - optimize by only saving what we change
         saved_domains = {}
-        for h in range(1, house_count + 1):
-            saved_domains[h] = {}
-            for f in features:
-                saved_domains[h][f] = domains[h][f].copy()
+        saved_domains[h_num] = {feature: domains[h_num][feature].copy()}
+        
+        # Track other houses we modify for this feature
+        modified_houses = []
+        for other_h in range(1, house_count + 1):
+            if other_h != h_num and value in domains[other_h][feature]:
+                if other_h not in saved_domains:
+                    saved_domains[other_h] = {}
+                saved_domains[other_h][feature] = domains[other_h][feature].copy()
+                modified_houses.append(other_h)
 
         # Assign value
         domains[h_num][feature] = [value]
 
         # Forward check: remove value from other houses for this feature
         valid = True
-        for other_h in range(1, house_count + 1):
-            if other_h != h_num and value in domains[other_h][feature]:
-                domains[other_h][feature].remove(value)
-                if not domains[other_h][feature]:
+        for other_h in modified_houses:
+            domains[other_h][feature].remove(value)
+            if not domains[other_h][feature]:
                     valid = False
                     break
 
         # Early constraint violation check: Check if this assignment violates any constraint
         if valid:
-            # Build partial assignment for constraint checking
+            # Build partial assignment for constraint checking (only singleton domains)
             partial_assignment = {}
             for h in range(1, house_count + 1):
                 partial_assignment[h] = {}
@@ -435,8 +451,7 @@ def _backtrack_solve(domains: dict, features: dict, constraints_parsed: list, ho
                 # Find positions if values are determined
                 left_pos = None
                 right_pos = None
-                left_feature = None
-                right_feature = None
+                left_feature, right_feature = constraint_cache.get(id(constraint), (None, None))
 
                 for h in range(1, house_count + 1):
                     for f, val in partial_assignment[h].items():
@@ -475,14 +490,14 @@ def _backtrack_solve(domains: dict, features: dict, constraints_parsed: list, ho
         # Recursively try to complete assignment
         if valid:
             result = _backtrack_solve(
-                domains, features, constraints_parsed, house_count, depth + 1)
+                domains, features, constraints_parsed, house_count, depth + 1, constraint_cache)
             if result:
                 return result
 
-        # Backtrack: restore domains
-        for h in range(1, house_count + 1):
-            for f in features:
-                domains[h][f] = saved_domains[h][f]
+        # Backtrack: restore only the domains we saved
+        for h, saved_features in saved_domains.items():
+            for f, saved_domain in saved_features.items():
+                domains[h][f] = saved_domain
 
     return {}
 
