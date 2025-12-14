@@ -399,8 +399,10 @@ def _backtrack_solve(domains: dict, features: dict, constraints_parsed: list, ho
         return domains
 
     # Find unassigned variable with smallest domain (MRV heuristic)
+    # Use degree heuristic as tiebreaker (variable involved in most constraints)
     best_var = None
     best_domain_size = float('inf')
+    best_degree = -1
 
     for h_num in range(1, house_count + 1):
         for feature in features:
@@ -409,17 +411,46 @@ def _backtrack_solve(domains: dict, features: dict, constraints_parsed: list, ho
             if domain_size == 0:
                 return {}
             # Pick smallest non-unit domain for backtracking
-            if domain_size > 1 and domain_size < best_domain_size:
-                best_domain_size = domain_size
-                best_var = (h_num, feature)
+            if domain_size > 1:
+                # Calculate degree: how many unassigned variables are connected via constraints
+                degree = 0
+                for constraint in constraints_parsed:
+                    left_feature, right_feature = constraint_cache.get(id(constraint), (None, None))
+                    if left_feature == feature or right_feature == feature:
+                        degree += 1
+                
+                # Choose variable with smallest domain, ties broken by highest degree
+                if domain_size < best_domain_size or (domain_size == best_domain_size and degree > best_degree):
+                    best_domain_size = domain_size
+                    best_degree = degree
+                    best_var = (h_num, feature)
 
     if best_var is None:
         return {}
 
     h_num, feature = best_var
 
-    # Try each value in domain
+    # Order values by least constraining value heuristic
+    # Try values that leave most options for other variables
+    value_scores = []
     for value in domains[h_num][feature]:
+        # Count how many options would remain for other variables if we assign this value
+        remaining_options = 0
+        for other_h in range(1, house_count + 1):
+            if other_h != h_num:
+                for f in features:
+                    if value not in domains[other_h].get(f, []):
+                        remaining_options += len(domains[other_h].get(f, []))
+                    else:
+                        remaining_options += len(domains[other_h].get(f, [])) - 1
+        value_scores.append((value, remaining_options))
+    
+    # Sort by most remaining options (least constraining first)
+    value_scores.sort(key=lambda x: x[1], reverse=True)
+    ordered_values = [v for v, _ in value_scores]
+
+    # Try each value in domain (ordered by least constraining)
+    for value in ordered_values:
         # Quick early pruning: check if this value violates any constraint using cache
         can_assign = True
 
