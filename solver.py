@@ -1079,12 +1079,23 @@ def _find_keyword_in_constraint(constraint: list[str], features: dict) -> Tuple[
     if not constraint:
         raise ValueError("Could not find a matching keyword in constraint.")
 
+    # Build list of all feature values
+    all_feature_values = []
+    for values in features.values():
+        all_feature_values.extend(values)
+    
     # Extract all possible values from all parts
     all_values = []
     for part in constraint:
-        value = _extract_value_from_text(part, features)
-        if value:
-            all_values.append(value)
+        # Normalize part for matching (replace hyphens with spaces for comparison)
+        part_normalized = part.lower().replace('-', ' ')
+        
+        # Try to find ALL values in this part, not just one
+        for value in sorted(all_feature_values, key=len, reverse=True):
+            value_normalized = value.lower().replace('-', ' ')
+            if value_normalized in part_normalized and value not in all_values:
+                all_values.append(value)
+                # Don't break - continue looking for other values in this part
 
     if len(all_values) < 2:
         raise ValueError(f"Could not extract two values from: {constraint}")
