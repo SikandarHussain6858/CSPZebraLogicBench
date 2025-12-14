@@ -300,7 +300,7 @@ def _backtrack_solve(domains: dict, features: dict, constraints_parsed: list, ho
     """Search for complete assignment using backtracking with MRV heuristic and optimizations."""
     # Limit recursion depth to prevent infinite loops
     # Increased limit for complex puzzles
-    if depth > 3000:
+    if depth > 5000:
         return {}
     
     # Initialize constraint cache on first call
@@ -592,7 +592,7 @@ def solve_puzzle(features: dict, constraints: list[str], house_count: int) -> li
         except Exception:
             continue
 
-    max_iterations = 200
+    max_iterations = 300
     iteration = 0
     puzzle_unsolvable = False
 
