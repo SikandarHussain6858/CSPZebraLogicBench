@@ -1,25 +1,19 @@
 import pandas as pd
 import json
-import re
+import ast
 from pathlib import Path
 from typing import Dict, List, Any
 
-# Convert an Input into a lower case String without any spaces
-def normalize(text: str) -> str:
-    return str(text).strip().lower()
-
-# Extract the Words inside backticks, because the Domains of each Variable is inside of a Backtick
-def split_backtick_list(cell: str) -> List[str]:
-    return [normalize(x) for x in re.findall(r"`([^`]+)`", cell)]
-
 # Parser Class
 class CSVToCSPParser:
+
     def __init__(self, csv_path: str):
         self.csv_path = Path(csv_path)
 
     # Every Row inside the CSV File is a specific CSP, so we will get them Row by row and convert all of them
     # into a JSON Object
     def parse_all(self) -> List[Dict[str, Any]]:
+        # Read CSV into DataFrame
         df = pd.read_csv(self.csv_path)
 
         # This List will hold all the CSP
@@ -28,11 +22,11 @@ class CSVToCSPParser:
         # Now we need to iterate through each Row, so that we can access each Constraint
         for _, row in df.iterrows():
             # As first, display the id of the specific Problem
-            problem_name = row["id"]
+            problem_id = row["id"]
             # Get the Amount of Houses
             house_count = int(row["houses"])
-            # Get the amount of fetures
-            feature_count = int(row["features"])
+            # Convert all the Features into a List and store them
+            features: Dict[str, List[str]] = ast.literal_eval(row["features"])
             # Output all the Variable Names and the Corresponding Domains
             variables: Dict[str, List[int]] = {}
             # Output all the Domains -> we need this when we want build the Constraints
@@ -42,51 +36,34 @@ class CSVToCSPParser:
             # Here we will have a List of all the Constraints
             constraints: List[Dict[str, Any]] = []
 
-            # Get the Feature Columns from all the Columns
-            feature_cols = [
-                c for c in df.columns
-                if c not in {"id", "houses", "features", "constraints"}
-            ][:feature_count]
+            # Iterate through all the features and Categories
+            for category, values in features.items():
+                # Store Category name
+                categories.append(category)
 
-            for col in feature_cols:
-                cell = row[col]
-
-                if pd.isna(cell):
-                    continue
-
-                sub_cell = cell.split(":", 1)
-
-                # Append the name of each Variable
-                categories.append(sub_cell[0])
-                # Add all the Domains of a specific Variable
-                values = split_backtick_list(sub_cell[1])
+                # Normalizing Values -> lower case to match with clues
+                normalized_values = [v.lower() for v in values]
 
                 # Here we have to make sure that all the Values, which belongs to same feature, must be
                 # assigned to different domains -> in our case through all the houses, otherwise a single house can
                 # get multiple values from the same category.
-                if values:
-                    constraints.append({
-                        "type": "ALL_DIFFERENT_CATEGORY",
-                        "vars": values
-                    })
+                constraints.append({
+                    "type": "ALL_DIFFERENT_CATEGORY",
+                    "vars": normalized_values
+                })
 
-                # Assign Domains to each Varaiable
-                for v in values:
+                # Assign domains to each variable
+                for v in normalized_values:
                     if v not in variables:
                         variables[v] = list(range(1, house_count + 1))
                         nodes.append(v)
 
-            # Now we have to get the Constraint Texts
-            clue_text = str(row["constraints"]).lower()
-            # A Clue starts always in a new line and has a Number, so we have to extract them
-            clues = re.split(r"\n|\r|\d+\. ", clue_text)
+            # Convert all the Clues into a List of Strings.
+            clues: List[str] = ast.literal_eval(row["constraints"])
 
             # Now we can iterate through all the Clues
             for clue in clues:
-                clue = clue.strip()
-                # ignore empty clues
-                if not clue:
-                    continue
+                clue = clue.lower()
 
                 # Here we will store all the Domains, that comes in a specific Clue.
                 # The way we do this, on top we have a Nodes List, which contains all the Domains of a specific CSP.
@@ -95,34 +72,54 @@ class CSVToCSPParser:
 
                 # Based on the different matching constraints, we will add them to the Constrains List
                 if "directly left" in clue and len(names) == 2:
-                    constraints.append({"type": "DIRECTLY_LEFT", "vars": names})
+                    constraints.append({
+                        "type": "DIRECTLY_LEFT",
+                        "vars": names
+                    })
 
                 elif "somewhere to the left" in clue and len(names) == 2:
-                    constraints.append({"type": "SOMEWHERE_TO_THE_LEFT", "vars": names})
+                    constraints.append({
+                        "type": "SOMEWHERE_TO_THE_LEFT",
+                        "vars": names
+                    })
 
                 elif "next to" in clue and len(names) == 2:
-                    constraints.append({"type": "NEXT_TO", "vars": names})
+                    constraints.append({
+                        "type": "NEXT_TO",
+                        "vars": names
+                    })
 
                 elif "one house between" in clue and len(names) == 2:
-                    constraints.append({"type": "DISTANCE", "vars": names, "param": 2})
+                    constraints.append({
+                        "type": "DISTANCE",
+                        "vars": names,
+                        "param": 2
+                    })
 
                 elif "two houses between" in clue and len(names) == 2:
-                    constraints.append({"type": "DISTANCE", "vars": names, "param": 3})
+                    constraints.append({
+                        "type": "DISTANCE",
+                        "vars": names,
+                        "param": 3
+                    })
 
                 elif " is " in clue and len(names) == 2:
-                    constraints.append({"type": "SAME_SLOT", "vars": names})
+                    constraints.append({
+                        "type": "SAME_SLOT",
+                        "vars": names
+                    })
 
             # This our JSON Format -> Representation of each CSP
             csps.append({
                 "metadata": {
-                    "problem_name": problem_name,
-                    "attribute_count": feature_count,
-                    "house_count": house_count
+                    "problem_name": problem_id,
+                    "house_count": house_count,
+                    "attribute_count": len(categories)
                 },
                 "variables_and_domains": {
                     "categories": categories,
-                    "domain_values": variables,
-                    "nodes": nodes
+                    "nodes": nodes,
+                    "domain_values": variables
                 },
                 "constraints": {
                     "puzzle_rules": constraints
@@ -131,11 +128,10 @@ class CSVToCSPParser:
 
         return csps
 
-
 if __name__ == "__main__":
     parser = CSVToCSPParser("output.csv")
     all_csps = parser.parse_all()
 
     with open("output.json", "w", encoding="utf-8") as f:
         json.dump(all_csps, f, indent=4)
-        print("Json file has been created successfully")
+        print("JSON File has been created successfully")
